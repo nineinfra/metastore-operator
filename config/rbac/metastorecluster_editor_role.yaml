@@ -1,0 +1,31 @@
+# permissions for end users to edit metastoreclusters.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: metastorecluster-editor-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: metastore-operator
+    app.kubernetes.io/part-of: metastore-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: metastorecluster-editor-role
+rules:
+- apiGroups:
+  - metastore.nineinfra.tech
+  resources:
+  - metastoreclusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - metastore.nineinfra.tech
+  resources:
+  - metastoreclusters/status
+  verbs:
+  - get

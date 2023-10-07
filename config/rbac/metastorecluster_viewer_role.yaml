@@ -1,0 +1,27 @@
+# permissions for end users to view metastoreclusters.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: metastorecluster-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: metastore-operator
+    app.kubernetes.io/part-of: metastore-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: metastorecluster-viewer-role
+rules:
+- apiGroups:
+  - metastore.nineinfra.tech
+  resources:
+  - metastoreclusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - metastore.nineinfra.tech
+  resources:
+  - metastoreclusters/status
+  verbs:
+  - get

@@ -1,0 +1,12 @@
+apiVersion: metastore.nineinfra.tech/v1alpha1
+kind: MetastoreCluster
+metadata:
+  labels:
+    app.kubernetes.io/name: metastorecluster
+    app.kubernetes.io/instance: metastorecluster-sample
+    app.kubernetes.io/part-of: metastore-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: metastore-operator
+  name: metastorecluster-sample
+spec:
+  # TODO(user): Add fields here

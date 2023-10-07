@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- metastore_v1alpha1_metastorecluster.yaml
+#+kubebuilder:scaffold:manifestskustomizesamples
