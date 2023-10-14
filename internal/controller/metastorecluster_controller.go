@@ -61,8 +61,8 @@ type MetastoreClusterReconciler struct {
 func (r *MetastoreClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	var metastore metastorev1alpha1.MetastoreCluster
-	err := r.Get(ctx, req.NamespacedName, &metastore)
+	var cluster metastorev1alpha1.MetastoreCluster
+	err := r.Get(ctx, req.NamespacedName, &cluster)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			logger.Info("Object not found, it could have been deleted")
@@ -74,11 +74,11 @@ func (r *MetastoreClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	requestArray := strings.Split(fmt.Sprint(req), "/")
 	requestName := requestArray[1]
 
-	if requestName == metastore.Name {
-		logger.Info("Create or update metastoreclusters")
-		err = r.reconcileClusters(ctx, &metastore, logger)
+	if requestName == cluster.Name {
+		logger.Info("Create or update clusters")
+		err = r.reconcileClusters(ctx, &cluster, logger)
 		if err != nil {
-			logger.Info("Error occurred during create or update metastoreclusters")
+			logger.Info("Error occurred during create or update clusters")
 			return ctrl.Result{}, err
 		}
 	}
@@ -92,38 +92,143 @@ func (r *MetastoreClusterReconciler) constructLabels(cluster *metastorev1alpha1.
 		"app":     metastorev1alpha1.ClusterSign,
 	}
 }
-func (r *MetastoreClusterReconciler) reconcileResource(ctx context.Context,
-	cluster *metastorev1alpha1.MetastoreCluster,
+
+func (r *MetastoreClusterReconciler) constructProbe(cluster *metastorev1alpha1.MetastoreCluster) *corev1.Probe {
+	return &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			TCPSocket: &corev1.TCPSocketAction{
+				Port: intstr.IntOrString{
+					Type:   intstr.String,
+					StrVal: "thrift",
+				},
+			},
+		},
+		InitialDelaySeconds: 30,
+		PeriodSeconds:       10,
+		TimeoutSeconds:      2,
+		FailureThreshold:    10,
+		SuccessThreshold:    1,
+	}
+}
+
+func (r *MetastoreClusterReconciler) constructVolume(cluster *metastorev1alpha1.MetastoreCluster) []corev1.Volume {
+	return []corev1.Volume{
+		{
+			Name: cluster.Name + "-hdfssite",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: r.resourceName(cluster),
+					},
+					Items: []corev1.KeyToPath{
+						{
+							Key:  "hdfs-site.xml",
+							Path: "hdfs-site.xml",
+						},
+					},
+				},
+			},
+		},
+		{
+			Name: cluster.Name + "-coresite",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: r.resourceName(cluster),
+					},
+					Items: []corev1.KeyToPath{
+						{
+							Key:  "core-site.xml",
+							Path: "core-site.xml",
+						},
+					},
+				},
+			},
+		},
+		{
+			Name: cluster.Name + "-hivesite",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: r.resourceName(cluster),
+					},
+					Items: []corev1.KeyToPath{
+						{
+							Key:  "hive-site.xml",
+							Path: "hive-site.xml",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func (r *MetastoreClusterReconciler) constructVolumeMounts(cluster *metastorev1alpha1.MetastoreCluster) []corev1.VolumeMount {
+	return []corev1.VolumeMount{
+		{
+			Name:      cluster.Name + "-hdfssite",
+			MountPath: "/opt/hadoop/etc/hadoop/hdfs-site.xml",
+			SubPath:   "hdfs-site.xml",
+		},
+		{
+			Name:      cluster.Name + "-coresite",
+			MountPath: "/opt/hadoop/etc/hadoop/core-site.xml",
+			SubPath:   "core-site.xml",
+		},
+		{
+			Name:      cluster.Name + "-hivesite",
+			MountPath: "/opt/hive/conf/hive-site.xml",
+			SubPath:   "hive-site.xml",
+		},
+	}
+}
+
+func (r *MetastoreClusterReconciler) resourceName(cluster *metastorev1alpha1.MetastoreCluster) string {
+	return cluster.Name + metastorev1alpha1.ClusterNameSuffix
+}
+
+func (r *MetastoreClusterReconciler) objectMeta(cluster *metastorev1alpha1.MetastoreCluster) metav1.ObjectMeta {
+	return metav1.ObjectMeta{
+		Name:      r.resourceName(cluster),
+		Namespace: cluster.Namespace,
+		Labels:    r.constructLabels(cluster),
+	}
+}
+
+func (r *MetastoreClusterReconciler) reconcileResource(ctx context.Context, cluster *metastorev1alpha1.MetastoreCluster,
 	constructFunc func(*metastorev1alpha1.MetastoreCluster) (client.Object, error),
-	existingResource client.Object,
-	resourceType string) error {
+	compareFunc func(*client.Object, *client.Object) bool,
+	updateFunc func(context.Context, *client.Object, *client.Object) error,
+	existingResource client.Object, resourceType string) error {
 	logger := log.FromContext(ctx)
-	resourceName := cluster.Name + metastorev1alpha1.ClusterNameSuffix
-	err := r.Get(ctx, types.NamespacedName{Name: resourceName, Namespace: cluster.Namespace}, existingResource)
-	if err != nil && errors.IsNotFound(err) {
-		resource, err := constructFunc(cluster)
-		if err != nil {
-			logger.Error(err, fmt.Sprintf("Failed to define new %s resource for Nifi", resourceType))
+	resourceName := r.resourceName(cluster)
+	desiredResource, err := constructFunc(cluster)
+	if err != nil {
+		logger.Error(err, fmt.Sprintf("Failed to define new %s resource for Cluster", resourceType))
 
-			// The following implementation will update the status
-			meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{Type: metastorev1alpha1.StateFailed,
-				Status: metav1.ConditionFalse, Reason: "Reconciling",
-				Message: fmt.Sprintf("Failed to create %s for the custom resource (%s): (%s)", resourceType, cluster.Name, err)})
+		// The following implementation will update the status
+		meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{Type: metastorev1alpha1.StateFailed,
+			Status: metav1.ConditionFalse, Reason: "Reconciling",
+			Message: fmt.Sprintf("Failed to create %s for the custom resource (%s): (%s)", resourceType, cluster.Name, err)})
 
-			if err := r.Status().Update(ctx, cluster); err != nil {
-				logger.Error(err, "Failed to update cluster status")
-				return err
-			}
-
+		if err := r.Status().Update(ctx, cluster); err != nil {
+			logger.Error(err, "Failed to update cluster status")
 			return err
 		}
 
-		logger.Info(fmt.Sprintf("Creating a new %s", resourceType),
-			fmt.Sprintf("%s.Namespace", resourceType), resource.GetNamespace(), fmt.Sprintf("%s.Name", resourceType), resource.GetName())
+		return err
+	}
 
-		if err = r.Create(ctx, resource); err != nil {
+	err = r.Get(ctx, types.NamespacedName{Name: resourceName, Namespace: cluster.Namespace}, existingResource)
+	if err != nil && errors.IsNotFound(err) {
+
+		logger.Info(fmt.Sprintf("Creating a new %s", resourceType),
+			fmt.Sprintf("%s.Namespace", resourceType), desiredResource.GetNamespace(), fmt.Sprintf("%s.Name", resourceType), desiredResource.GetName())
+
+		if err = r.Create(ctx, desiredResource); err != nil {
 			logger.Error(err, fmt.Sprintf("Failed to create new %s", resourceType),
-				fmt.Sprintf("%s.Namespace", resourceType), resource.GetNamespace(), fmt.Sprintf("%s.Name", resourceType), resource.GetName())
+				fmt.Sprintf("%s.Namespace", resourceType), desiredResource.GetNamespace(), fmt.Sprintf("%s.Name", resourceType), desiredResource.GetName())
 			return err
 		}
 
@@ -135,17 +240,26 @@ func (r *MetastoreClusterReconciler) reconcileResource(ctx context.Context,
 	} else if err != nil {
 		logger.Error(err, fmt.Sprintf("Failed to get %s", resourceType))
 		return err
+	} else {
+		if compareFunc != nil {
+			logger.Info(fmt.Sprintf("Checking modified %s", resourceType),
+				fmt.Sprintf("%s.Namespace", resourceType), cluster.Namespace, fmt.Sprintf("%s.Name", resourceType), cluster.Name)
+			if compareFunc(&existingResource, &desiredResource) {
+				err = updateFunc(ctx, &existingResource, &desiredResource)
+				if err != nil {
+					logger.Error(err, fmt.Sprintf("Failed to update %s", resourceType),
+						fmt.Sprintf("%s.Namespace", resourceType), desiredResource.GetNamespace(), fmt.Sprintf("%s.Name", resourceType), desiredResource.GetName())
+					return err
+				}
+			}
+		}
 	}
 	return nil
 }
 
 func (r *MetastoreClusterReconciler) constructServiceAccount(cluster *metastorev1alpha1.MetastoreCluster) (client.Object, error) {
 	saDesired := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.Name + metastorev1alpha1.ClusterSign,
-			Namespace: cluster.Namespace,
-			Labels:    r.constructLabels(cluster),
-		},
+		ObjectMeta: r.objectMeta(cluster),
 	}
 
 	if err := ctrl.SetControllerReference(cluster, saDesired, r.Scheme); err != nil {
@@ -155,13 +269,9 @@ func (r *MetastoreClusterReconciler) constructServiceAccount(cluster *metastorev
 	return saDesired, nil
 }
 
-func (r *MetastoreClusterReconciler) constructRole(cluster *metastorev1alpha1.MetastoreCluster) (client.Object, error) {
+func (r *MetastoreClusterReconciler) constructClusterRole(cluster *metastorev1alpha1.MetastoreCluster) (client.Object, error) {
 	roleDesired := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.Name + metastorev1alpha1.ClusterSign,
-			Namespace: cluster.Namespace,
-			Labels:    r.constructLabels(cluster),
-		},
+		ObjectMeta: r.objectMeta(cluster),
 		Rules: []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{
@@ -192,21 +302,17 @@ func (r *MetastoreClusterReconciler) constructRole(cluster *metastorev1alpha1.Me
 
 func (r *MetastoreClusterReconciler) constructRoleBinding(cluster *metastorev1alpha1.MetastoreCluster) (client.Object, error) {
 	roleBindingDesired := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.Name + metastorev1alpha1.ClusterSign,
-			Namespace: cluster.Namespace,
-			Labels:    r.constructLabels(cluster),
-		},
+		ObjectMeta: r.objectMeta(cluster),
 		Subjects: []rbacv1.Subject{
 			{
 				Kind: "ServiceAccount",
-				Name: cluster.Name + metastorev1alpha1.ClusterSign,
+				Name: r.resourceName(cluster),
 			},
 		},
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: "rbac.authorization.k8s.io",
 			Kind:     "Role",
-			Name:     cluster.Name + metastorev1alpha1.ClusterSign,
+			Name:     r.resourceName(cluster),
 		},
 	}
 
@@ -219,21 +325,21 @@ func (r *MetastoreClusterReconciler) constructRoleBinding(cluster *metastorev1al
 
 func (r *MetastoreClusterReconciler) reconcileRbacResources(ctx context.Context, cluster *metastorev1alpha1.MetastoreCluster, logger logr.Logger) error {
 	existingSa := &corev1.ServiceAccount{}
-	err := r.reconcileResource(ctx, cluster, r.constructServiceAccount, existingSa, "ServiceAccount")
+	err := r.reconcileResource(ctx, cluster, r.constructServiceAccount, nil, nil, existingSa, "ServiceAccount")
 	if err != nil {
 		logger.Error(err, "Error occurred during reconcileResource for serviceaccount")
 		return err
 	}
 
 	existingRole := &rbacv1.Role{}
-	err = r.reconcileResource(ctx, cluster, r.constructRole, existingRole, "Role")
+	err = r.reconcileResource(ctx, cluster, r.constructClusterRole, nil, nil, existingRole, "Role")
 	if err != nil {
 		logger.Error(err, "Error occurred during reconcileResource role")
 		return err
 	}
 
-	existingRB := &rbacv1.RoleBinding{}
-	err = r.reconcileResource(ctx, cluster, r.constructRoleBinding, existingRB, "RoleBinding")
+	existingRoleBinding := &rbacv1.RoleBinding{}
+	err = r.reconcileResource(ctx, cluster, r.constructRoleBinding, nil, nil, existingRoleBinding, "RoleBinding")
 	if err != nil {
 		logger.Error(err, "Error occurred during reconcileResource rolebinding")
 		return err
@@ -244,12 +350,8 @@ func (r *MetastoreClusterReconciler) reconcileRbacResources(ctx context.Context,
 
 func (r *MetastoreClusterReconciler) constructConfigMap(cluster *metastorev1alpha1.MetastoreCluster) (client.Object, error) {
 	cmDesired := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.Name + metastorev1alpha1.ClusterSign,
-			Namespace: cluster.Namespace,
-			Labels:    r.constructLabels(cluster),
-		},
-		Data: map[string]string{},
+		ObjectMeta: r.objectMeta(cluster),
+		Data:       map[string]string{},
 	}
 
 	clusterConf := make(map[string]string)
@@ -290,9 +392,19 @@ func (r *MetastoreClusterReconciler) constructConfigMap(cluster *metastorev1alph
 	return cmDesired, nil
 }
 
+func (r *MetastoreClusterReconciler) compareConfigMap(cm1 *client.Object, cm2 *client.Object) bool {
+
+	return true
+}
+
+func (r *MetastoreClusterReconciler) updateConfigMap(ctx context.Context, cm1 *client.Object, cm2 *client.Object) error {
+
+	return nil
+}
+
 func (r *MetastoreClusterReconciler) reconcileConfigmap(ctx context.Context, cluster *metastorev1alpha1.MetastoreCluster, logger logr.Logger) error {
 	existingConfigMap := &corev1.ConfigMap{}
-	err := r.reconcileResource(ctx, cluster, r.constructConfigMap, existingConfigMap, "ConfigMap")
+	err := r.reconcileResource(ctx, cluster, r.constructConfigMap, r.compareConfigMap, r.updateConfigMap, existingConfigMap, "ConfigMap")
 	if err != nil {
 		logger.Error(err, "Error occurred during reconcileResource configmap")
 		return err
@@ -309,21 +421,15 @@ func (r *MetastoreClusterReconciler) constructWorkload(cluster *metastorev1alpha
 		}
 	}
 	stsDesired := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.Name + metastorev1alpha1.ClusterNameSuffix,
-			Namespace: cluster.Namespace,
-			Labels:    r.constructLabels(cluster),
-		},
+		ObjectMeta: r.objectMeta(cluster),
 		Spec: appsv1.StatefulSetSpec{
 			Selector: &metav1.LabelSelector{
 				MatchLabels: r.constructLabels(cluster),
 			},
-			ServiceName: cluster.Name + metastorev1alpha1.ClusterNameSuffix,
+			ServiceName: r.resourceName(cluster),
 			Replicas:    int32Ptr(cluster.Spec.MetastoreResource.Replicas),
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: r.constructLabels(cluster),
-				},
+				ObjectMeta: r.objectMeta(cluster),
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
@@ -342,108 +448,14 @@ func (r *MetastoreClusterReconciler) constructWorkload(cluster *metastorev1alpha
 									ContainerPort: int32(9083),
 								},
 							},
-							LivenessProbe: &corev1.Probe{
-								ProbeHandler: corev1.ProbeHandler{
-									Exec: &corev1.ExecAction{
-										Command: []string{
-											"/bin/bash",
-											"-c",
-											"bin/kyuubi status",
-										},
-									},
-								},
-								InitialDelaySeconds: 30,
-								PeriodSeconds:       10,
-								TimeoutSeconds:      2,
-								FailureThreshold:    10,
-								SuccessThreshold:    1,
-							},
-							ReadinessProbe: &corev1.Probe{
-								ProbeHandler: corev1.ProbeHandler{
-									Exec: &corev1.ExecAction{
-										Command: []string{
-											"/bin/bash",
-											"-c",
-											""},
-									},
-								},
-								InitialDelaySeconds: 30,
-								PeriodSeconds:       10,
-								TimeoutSeconds:      2,
-								FailureThreshold:    10,
-								SuccessThreshold:    1,
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      cluster.Name + "-hdfssite",
-									MountPath: "/opt/hadoop/etc/hadoop/hdfs-site.xml",
-									SubPath:   "hdfs-site.xml",
-								},
-								{
-									Name:      cluster.Name + "-coresite",
-									MountPath: "/opt/hadoop/etc/hadoop/core-site.xml",
-									SubPath:   "core-site.xml",
-								},
-								{
-									Name:      cluster.Name + "-hivesite",
-									MountPath: "/opt/hive/conf/hive-site.xml",
-									SubPath:   "hive-site.xml",
-								},
-							},
+							LivenessProbe:  r.constructProbe(cluster),
+							ReadinessProbe: r.constructProbe(cluster),
+							VolumeMounts:   r.constructVolumeMounts(cluster),
 						},
 					},
 					RestartPolicy:      corev1.RestartPolicyAlways,
-					ServiceAccountName: cluster.Name + metastorev1alpha1.ClusterNameSuffix,
-					Volumes: []corev1.Volume{
-						{
-							Name: cluster.Name + "-hdfssite",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: cluster.Name + metastorev1alpha1.ClusterNameSuffix,
-									},
-									Items: []corev1.KeyToPath{
-										{
-											Key:  "hdfs-site.xml",
-											Path: "hdfs-site.xml",
-										},
-									},
-								},
-							},
-						},
-						{
-							Name: cluster.Name + "-coresite",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: cluster.Name + metastorev1alpha1.ClusterNameSuffix,
-									},
-									Items: []corev1.KeyToPath{
-										{
-											Key:  "core-site.xml",
-											Path: "core-site.xml",
-										},
-									},
-								},
-							},
-						},
-						{
-							Name: cluster.Name + "-hivesite",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: cluster.Name + metastorev1alpha1.ClusterNameSuffix,
-									},
-									Items: []corev1.KeyToPath{
-										{
-											Key:  "hive-site.xml",
-											Path: "hive-site.xml",
-										},
-									},
-								},
-							},
-						},
-					},
+					ServiceAccountName: r.resourceName(cluster),
+					Volumes:            r.constructVolume(cluster),
 				},
 			},
 		},
@@ -455,11 +467,19 @@ func (r *MetastoreClusterReconciler) constructWorkload(cluster *metastorev1alpha
 	return stsDesired, nil
 }
 
+func (r *MetastoreClusterReconciler) compareWorkload(workload1 *client.Object, workload2 *client.Object) bool {
+	return true
+}
+
+func (r *MetastoreClusterReconciler) updateWorkload(ctx context.Context, workload1 *client.Object, workload2 *client.Object) error {
+	return nil
+}
+
 func (r *MetastoreClusterReconciler) reconcileWorkload(ctx context.Context, cluster *metastorev1alpha1.MetastoreCluster, logger logr.Logger) error {
 	existingWorkload := &appsv1.StatefulSet{}
-	err := r.reconcileResource(ctx, cluster, r.constructWorkload, existingWorkload, "StatefulSet")
+	err := r.reconcileResource(ctx, cluster, r.constructWorkload, r.compareWorkload, r.updateWorkload, existingWorkload, "StatefulSet")
 	if err != nil {
-		logger.Error(err, "Error occurred during reconcileResource role")
+		logger.Error(err, "Error occurred during reconcileResource workload")
 		return err
 	}
 	return nil
@@ -467,14 +487,7 @@ func (r *MetastoreClusterReconciler) reconcileWorkload(ctx context.Context, clus
 
 func (r *MetastoreClusterReconciler) constructService(cluster *metastorev1alpha1.MetastoreCluster) (client.Object, error) {
 	svcDesired := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.Name + metastorev1alpha1.ClusterNameSuffix,
-			Namespace: cluster.Namespace,
-			Labels: map[string]string{
-				"cluster": cluster.Name,
-				"app":     "metastore",
-			},
-		},
+		ObjectMeta: r.objectMeta(cluster),
 		Spec: corev1.ServiceSpec{
 			Type: corev1.ServiceTypeClusterIP,
 			Ports: []corev1.ServicePort{
@@ -487,10 +500,7 @@ func (r *MetastoreClusterReconciler) constructService(cluster *metastorev1alpha1
 					},
 				},
 			},
-			Selector: map[string]string{
-				"cluster": cluster.Name,
-				"app":     "metastore",
-			},
+			Selector: r.constructLabels(cluster),
 		},
 	}
 
@@ -503,7 +513,7 @@ func (r *MetastoreClusterReconciler) constructService(cluster *metastorev1alpha1
 
 func (r *MetastoreClusterReconciler) reconcileService(ctx context.Context, cluster *metastorev1alpha1.MetastoreCluster, logger logr.Logger) (*corev1.Service, error) {
 	existingService := &corev1.Service{}
-	err := r.reconcileResource(ctx, cluster, r.constructService, existingService, "Service")
+	err := r.reconcileResource(ctx, cluster, r.constructService, nil, nil, existingService, "Service")
 	if err != nil {
 		logger.Error(err, "Error occurred during reconcileResource service")
 		return existingService, err
