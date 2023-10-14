@@ -17,25 +17,138 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+const ClusterNameSuffix = "-metastore"
+const ClusterSign = "metastore"
+
+type ClusterType string
+
+// Different types of clusters.
+const (
+	DatabaseClusterType ClusterType = "database"
+	MinioClusterType    ClusterType = "minio"
+	HdfsClusterType     ClusterType = "hdfs"
+)
+
+type ImageConfig struct {
+	Repository string `json:"repository"`
+	// Image tag. Usually the vesion of the kyuubi, default: `latest`.
+	// +optional
+	Tag string `json:"tag,omitempty"`
+	// Image pull policy. One of `Always, Never, IfNotPresent`, default: `Always`.
+	// +kubebuilder:default:=Always
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	// +optional
+	PullPolicy string `json:"pullPolicy,omitempty"`
+	// Secrets for image pull.
+	// +optional
+	PullSecrets string `json:"pullSecret,omitempty"`
+}
+
+type ResourceConfig struct {
+	// The replicas of the kyuubi cluster workload.
+	Replicas int32 `json:"replicas"`
+}
+
+type DatabaseCluster struct {
+	// connection Url of the database.such as jdbc:mysql://mysql:3306/metastore
+	ConnectionUrl string `json:"connectionUrl"`
+	//Db type.Specified the driver name.Support mysql,postgres
+	DbType string `json:"dbType"`
+	// Username of the database.
+	UserName string `json:"userName"`
+	// password
+	Password string `json:"password"`
+}
+
+type MinioCluster struct {
+	// Endpoint of minio.Default is the service called minio.
+	Endpoint string `json:"endpoint"`
+	// Access Key
+	AccessKey string `json:"accessKey"`
+	// Secret Key
+	SecretKey string `json:"secretKey"`
+	// SSL enabled
+	SSLEnabled bool `json:"sslEnabled"`
+	//Path style access
+	PathStyleAccess bool `json:"pathStyleAccess"`
+}
+
+type HdfsCluster struct {
+	// +optional
+	// HDFS core-site.xml.The type of the value must be string
+	CoreSite map[string]string `json:"coreSite,omitempty"`
+	// +optional
+	// HDFS hdfs-site.xml.The type of the value must be string
+	HdfsSite map[string]string `json:"hdfsSite,omitempty"`
+}
+
+type ClusterRef struct {
+	// Name is the name of the referenced cluster
+	Name string `json:"name"`
+	// +kubebuilder:validation:Enum={spark,metastore,hdfs,flink}
+	Type ClusterType `json:"type"`
+	// ClusterInfo is the detail info of the cluster of the clustertype
+	// +optional
+	// Database cluster infos referenced by the Metastore cluster
+	Database DatabaseCluster `json:"database"`
+	// +optional
+	// Minio cluster infos referenced by the Metastore cluster
+	Minio MinioCluster `json:"metastore"`
+	// +optional
+	// HDFS cluster infos referenced by the Metastore cluster
+	Hdfs HdfsCluster `json:"hdfs"`
+}
 
 // MetastoreClusterSpec defines the desired state of MetastoreCluster
 type MetastoreClusterSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	//Metastore version
+	MetastoreVersion string `json:"metastoreVersion"`
+	//Metastore image info
+	MetastoreImage ImageConfig `json:"metastoreImage"`
+	//Metastore resouce configuration
+	MetastoreResource ResourceConfig `json:"kyuubiResource"`
+	//Metastore configurations.These cofigurations will be injected into the hive-site.xml.The type of the value must be string
+	MetastoreConf map[string]string `json:"metastoreConf"`
+	//Clusters referenced by Metastore
+	ClusterRefs []ClusterRef `json:"clusterRefs"`
+}
 
-	// Foo is an example field of MetastoreCluster. Edit metastorecluster_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+type ExposedType string
+
+const (
+	ExposedRest       ExposedType = "rest"
+	ExposedThriftHttp ExposedType = "thrift-http"
+)
+
+type ExposedInfo struct {
+	//Exposed name.
+	Name string `json:"name"`
+	//Exposed type. Support REST and THRIFT_BINARY
+	ExposedType ExposedType `json:"exposedType"`
+	//Exposed service name
+	ServiceName string `json:"serviceName"`
+	//Exposed service port info
+	ServicePort corev1.ServicePort `json:"servicePort"`
 }
 
 // MetastoreClusterStatus defines the observed state of MetastoreCluster
 type MetastoreClusterStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Represents the observations of a NineCluster's current state.
+	// MetastoreCluster.status.conditions.type are: "Available", "Progressing", and "Degraded"
+	// MetastoreCluster.status.conditions.status are one of True, False, Unknown.
+	// MetastoreCluster.status.conditions.reason the value should be a CamelCase string and producers of specific
+	// condition types may define expected values and meanings for this field, and whether the values
+	// are considered a guaranteed API.
+	// MetastoreCluster.status.conditions.Message is a human readable message indicating details about the transition.
+	// For further information see: https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	ExposedInfos []ExposedInfo      `json:"exposedInfos"`
+	CreationTime metav1.Time        `json:"creationTime"`
+	UpdateTime   metav1.Time        `json:"updateTime"`
+	Conditions   []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }
 
 //+kubebuilder:object:root=true
