@@ -22,9 +22,13 @@ import (
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -106,7 +110,7 @@ func (r *MetastoreClusterReconciler) reconcileResource(ctx context.Context,
 				Status: metav1.ConditionFalse, Reason: "Reconciling",
 				Message: fmt.Sprintf("Failed to create %s for the custom resource (%s): (%s)", resourceType, cluster.Name, err)})
 
-			if err := r.Status().Update(ctx, nine); err != nil {
+			if err := r.Status().Update(ctx, cluster); err != nil {
 				logger.Error(err, "Failed to update cluster status")
 				return err
 			}
@@ -135,7 +139,7 @@ func (r *MetastoreClusterReconciler) reconcileResource(ctx context.Context,
 	return nil
 }
 
-func (r *MetastoreClusterReconciler) constructServiceAccount(cluster *metastorev1alpha1.MetastoreCluster) (*corev1.ServiceAccount, error) {
+func (r *MetastoreClusterReconciler) constructServiceAccount(cluster *metastorev1alpha1.MetastoreCluster) (client.Object, error) {
 	saDesired := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cluster.Name + metastorev1alpha1.ClusterSign,
@@ -151,7 +155,7 @@ func (r *MetastoreClusterReconciler) constructServiceAccount(cluster *metastorev
 	return saDesired, nil
 }
 
-func (r *MetastoreClusterReconciler) constructRole(cluster *metastorev1alpha1.MetastoreCluster) (*rbacv1.Role, error) {
+func (r *MetastoreClusterReconciler) constructRole(cluster *metastorev1alpha1.MetastoreCluster) (client.Object, error) {
 	roleDesired := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cluster.Name + metastorev1alpha1.ClusterSign,
@@ -186,7 +190,7 @@ func (r *MetastoreClusterReconciler) constructRole(cluster *metastorev1alpha1.Me
 	return roleDesired, nil
 }
 
-func (r *MetastoreClusterReconciler) constructRoleBinding(cluster *metastorev1alpha1.MetastoreCluster) (*rbacv1.RoleBinding, error) {
+func (r *MetastoreClusterReconciler) constructRoleBinding(cluster *metastorev1alpha1.MetastoreCluster) (client.Object, error) {
 	roleBindingDesired := &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cluster.Name + metastorev1alpha1.ClusterSign,
@@ -214,22 +218,22 @@ func (r *MetastoreClusterReconciler) constructRoleBinding(cluster *metastorev1al
 }
 
 func (r *MetastoreClusterReconciler) reconcileRbacResources(ctx context.Context, cluster *metastorev1alpha1.MetastoreCluster, logger logr.Logger) error {
-	existingResource := &corev1.ServiceAccount{}
-	err := r.reconcileResource(ctx, cluster, r.constructServiceAccount, existingResource, "ServiceAccount")
+	existingSa := &corev1.ServiceAccount{}
+	err := r.reconcileResource(ctx, cluster, r.constructServiceAccount, existingSa, "ServiceAccount")
 	if err != nil {
 		logger.Error(err, "Error occurred during reconcileResource for serviceaccount")
 		return err
 	}
 
-	existingResource = &rbacv1.RoleBinding{}
-	err = r.reconcileResource(ctx, cluster, r.constructRole, existingResource, "RoleBinding")
+	existingRole := &rbacv1.Role{}
+	err = r.reconcileResource(ctx, cluster, r.constructRole, existingRole, "Role")
 	if err != nil {
 		logger.Error(err, "Error occurred during reconcileResource role")
 		return err
 	}
 
-	existingResource = &rbacv1.Role{}
-	err = r.reconcileResource(ctx, cluster, r.constructRoleBinding, existingResource, "Role")
+	existingRB := &rbacv1.RoleBinding{}
+	err = r.reconcileResource(ctx, cluster, r.constructRoleBinding, existingRB, "RoleBinding")
 	if err != nil {
 		logger.Error(err, "Error occurred during reconcileResource rolebinding")
 		return err
@@ -238,47 +242,46 @@ func (r *MetastoreClusterReconciler) reconcileRbacResources(ctx context.Context,
 	return nil
 }
 
-func (r *MetastoreClusterReconciler) constructConfigMap(cluster *metastorev1alpha1.MetastoreCluster) (*corev1.ConfigMap, error) {
-
+func (r *MetastoreClusterReconciler) constructConfigMap(cluster *metastorev1alpha1.MetastoreCluster) (client.Object, error) {
 	cmDesired := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cluster.Name + metastorev1alpha1.ClusterSign,
 			Namespace: cluster.Namespace,
 			Labels:    r.constructLabels(cluster),
-			},
 		},
 		Data: map[string]string{},
 	}
+
 	clusterConf := make(map[string]string)
-	for k, v := range metastore.spec.MetastoreConf {
+	for k, v := range cluster.Spec.MetastoreConf {
 		clusterConf[k] = v
 	}
 
 	for _, clusterRef := range cluster.Spec.ClusterRefs {
 		switch clusterRef.Type {
 		case metastorev1alpha1.DatabaseClusterType:
-			switch clusterRef.DbType {
+			switch clusterRef.Database.DbType {
 			case "mysql":
 				clusterConf["javax.jdo.option.ConnectionDriverNam"] = "org.mysql.Driver"
 			case "postgres":
 				clusterConf["javax.jdo.option.ConnectionDriverNam"] = "org.postgresql.Driver"
 			}
-			clusterConf["javax.jdo.option.ConnectionURL"] = clusterRef.ConnectionUrl
-			clusterConf["javax.jdo.option.ConnectionUserName"] = clusterRef.UserName
-			clusterConf["javax.jdo.option.ConnectionPassword"] = clusterRef.Password
+			clusterConf["javax.jdo.option.ConnectionURL"] = clusterRef.Database.ConnectionUrl
+			clusterConf["javax.jdo.option.ConnectionUserName"] = clusterRef.Database.UserName
+			clusterConf["javax.jdo.option.ConnectionPassword"] = clusterRef.Database.Password
 		case metastorev1alpha1.MinioClusterType:
-			clusterConf["fs.s3a.endpoint"] = clusterRef.Endpoint
-			clusterConf["fs.s3a.path.style.access"] = clusterRef.PathStyleAccess
-			clusterConf["fs.s3a.connection.ssl.enabled"] = clusterRef.SSLEnabled
-			clusterConf["fs.s3a.access.key"] = clusterRef.AccessKey
-			clusterConf["fs.s3a.secret.key"] = cluster.SecretKey
+			clusterConf["fs.s3a.endpoint"] = clusterRef.Minio.Endpoint
+			clusterConf["fs.s3a.path.style.access"] = clusterRef.Minio.PathStyleAccess
+			clusterConf["fs.s3a.connection.ssl.enabled"] = clusterRef.Minio.SSLEnabled
+			clusterConf["fs.s3a.access.key"] = clusterRef.Minio.AccessKey
+			clusterConf["fs.s3a.secret.key"] = clusterRef.Minio.SecretKey
 		case metastorev1alpha1.HdfsClusterType:
 			cmDesired.Data["hdfs-site.xml"] = map2Xml(clusterRef.Hdfs.HdfsSite)
 			cmDesired.Data["core-site.xml"] = map2Xml(clusterRef.Hdfs.CoreSite)
 		}
 	}
 	clusterConf["hive.metastore.warehouse.dir"] = "/usr/hive/warehouse"
-	cmDesired["hive-site.xml"] = map2Xml(clusterConf)
+	cmDesired.Data["hive-site.xml"] = map2Xml(clusterConf)
 
 	if err := ctrl.SetControllerReference(cluster, cmDesired, r.Scheme); err != nil {
 		return cmDesired, err
@@ -297,17 +300,19 @@ func (r *MetastoreClusterReconciler) reconcileConfigmap(ctx context.Context, clu
 	return nil
 }
 
-func (r *MetastoreClusterReconciler) constructWorkload(cluster *metastorev1alpha1.MetastoreCluster) (*appsv1.StatefulSet, error) {
+func (r *MetastoreClusterReconciler) constructWorkload(cluster *metastorev1alpha1.MetastoreCluster) (client.Object, error) {
+	dbType := "mysql"
 	for _, v := range cluster.Spec.ClusterRefs {
-		if v.Type == DatabaseClusterType {
-			dbType := v.DbType
+		if v.Type == metastorev1alpha1.DatabaseClusterType {
+			dbType = v.Database.DbType
+			break
 		}
 	}
 	stsDesired := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cluster.Name + metastorev1alpha1.ClusterNameSuffix,
 			Namespace: cluster.Namespace,
-			Labels: r.constructLabels(cluster),
+			Labels:    r.constructLabels(cluster),
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Selector: &metav1.LabelSelector{
@@ -325,7 +330,7 @@ func (r *MetastoreClusterReconciler) constructWorkload(cluster *metastorev1alpha
 							Name:            cluster.Name,
 							Image:           cluster.Spec.MetastoreImage.Repository + ":" + cluster.Spec.MetastoreImage.Tag,
 							ImagePullPolicy: corev1.PullPolicy(cluster.Spec.MetastoreImage.PullPolicy),
-							Env: []Object{
+							Env: []corev1.EnvVar{
 								{
 									Name:  "DB_TYPE",
 									Value: dbType,
@@ -333,7 +338,7 @@ func (r *MetastoreClusterReconciler) constructWorkload(cluster *metastorev1alpha
 							},
 							Ports: []corev1.ContainerPort{
 								{
-									Name:          "thrift-http",
+									Name:          "thrift",
 									ContainerPort: int32(9083),
 								},
 							},
@@ -460,7 +465,7 @@ func (r *MetastoreClusterReconciler) reconcileWorkload(ctx context.Context, clus
 	return nil
 }
 
-func (r *MetastoreClusterReconciler) contructService(cluster *metastorev1alpha1.MetastoreCluster) (*corev1.Service, error) {
+func (r *MetastoreClusterReconciler) constructService(cluster *metastorev1alpha1.MetastoreCluster) (client.Object, error) {
 	svcDesired := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cluster.Name + metastorev1alpha1.ClusterNameSuffix,
@@ -496,7 +501,7 @@ func (r *MetastoreClusterReconciler) contructService(cluster *metastorev1alpha1.
 	return svcDesired, nil
 }
 
-func (r *MetastoreClusterReconciler) reconcileService(ctx context.Context, cluster *metastorev1alpha1.MetastoreCluster) (*corev1.Service, error) {
+func (r *MetastoreClusterReconciler) reconcileService(ctx context.Context, cluster *metastorev1alpha1.MetastoreCluster, logger logr.Logger) (*corev1.Service, error) {
 	existingService := &corev1.Service{}
 	err := r.reconcileResource(ctx, cluster, r.constructService, existingService, "Service")
 	if err != nil {
@@ -557,7 +562,7 @@ func (r *MetastoreClusterReconciler) reconcileClusters(ctx context.Context, clus
 		return err
 	}
 
-	existingService, err := r.reconcileService(ctx, cluster)
+	existingService, err := r.reconcileService(ctx, cluster, logger)
 	if err != nil {
 		logger.Error(err, "Error occurred during reconcileService")
 		return err

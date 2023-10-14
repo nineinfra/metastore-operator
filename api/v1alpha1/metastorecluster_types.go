@@ -33,6 +33,14 @@ const (
 	HdfsClusterType     ClusterType = "hdfs"
 )
 
+// Definitions to manage status conditions
+const (
+	// available
+	StateAvailable = "Available"
+	// failed
+	StateFailed = "Failed"
+)
+
 type ImageConfig struct {
 	Repository string `json:"repository"`
 	// Image tag. Usually the vesion of the kyuubi, default: `latest`.
@@ -72,9 +80,9 @@ type MinioCluster struct {
 	// Secret Key
 	SecretKey string `json:"secretKey"`
 	// SSL enabled
-	SSLEnabled bool `json:"sslEnabled"`
+	SSLEnabled string `json:"sslEnabled"`
 	//Path style access
-	PathStyleAccess bool `json:"pathStyleAccess"`
+	PathStyleAccess string `json:"pathStyleAccess"`
 }
 
 type HdfsCluster struct {
