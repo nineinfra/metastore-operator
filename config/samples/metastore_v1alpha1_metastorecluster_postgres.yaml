@@ -1,0 +1,38 @@
+apiVersion: metastore.nineinfra.tech/v1alpha1
+kind: MetastoreCluster
+metadata:
+  labels:
+    app.kubernetes.io/name: metastorecluster
+    app.kubernetes.io/instance: metastorecluster-sample
+    app.kubernetes.io/part-of: metastore-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: metastore-operator
+  name: metastorecluster-sample
+spec:
+  metastoreVersion: 3.1.3
+  metastoreImage:
+    repository: 172.18.123.24:30003/library/metastore
+    tag: v3.1.3
+  metastoreResource:
+    replicas: 1
+  metastoreConf:
+    "hive.metastore.warehouse.dir": "/usr/hive/warehouse"
+  clusterRefs:
+    - name: "database"
+      type: "database"
+      database:
+        connectionUrl: "jdbc:postgresql://postgresql:5432/hive"
+        dbType: postgres
+        userName: hive
+        password: hive
+    - name: "minio"
+      type: "minio"
+      minio:
+        endpoint: "http://172.18.123.24:31063"
+        accessKey: "984GcQyUWobTVl3B"
+        secretKey: "wE5ffRYxSacalsYT5UAVgo1AMlK2uune"
+        sslEnabled: "false"
+        pathStyleAccess: "true"
+
+
+
