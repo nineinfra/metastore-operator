@@ -93,13 +93,13 @@ func (r *MetastoreClusterReconciler) constructLabels(cluster *metastorev1alpha1.
 	}
 }
 
-func (r *MetastoreClusterReconciler) constructProbe(cluster *metastorev1alpha1.MetastoreCluster) *corev1.Probe {
+func (r *MetastoreClusterReconciler) constructProbe() *corev1.Probe {
 	return &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
 			TCPSocket: &corev1.TCPSocketAction{
 				Port: intstr.IntOrString{
 					Type:   intstr.String,
-					StrVal: "thrift",
+					StrVal: string(metastorev1alpha1.ExposedThriftHttp),
 				},
 			},
 		},
@@ -112,39 +112,7 @@ func (r *MetastoreClusterReconciler) constructProbe(cluster *metastorev1alpha1.M
 }
 
 func (r *MetastoreClusterReconciler) constructVolume(cluster *metastorev1alpha1.MetastoreCluster) []corev1.Volume {
-	return []corev1.Volume{
-		{
-			Name: cluster.Name + "-hdfssite",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: r.resourceName(cluster),
-					},
-					Items: []corev1.KeyToPath{
-						{
-							Key:  "hdfs-site.xml",
-							Path: "hdfs-site.xml",
-						},
-					},
-				},
-			},
-		},
-		{
-			Name: cluster.Name + "-coresite",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: r.resourceName(cluster),
-					},
-					Items: []corev1.KeyToPath{
-						{
-							Key:  "core-site.xml",
-							Path: "core-site.xml",
-						},
-					},
-				},
-			},
-		},
+	volumes := []corev1.Volume{
 		{
 			Name: cluster.Name + "-hivesite",
 			VolumeSource: corev1.VolumeSource{
@@ -162,26 +130,81 @@ func (r *MetastoreClusterReconciler) constructVolume(cluster *metastorev1alpha1.
 			},
 		},
 	}
+
+	for _, v := range cluster.Spec.ClusterRefs {
+		if v.Type == metastorev1alpha1.HdfsClusterType {
+			if v.Hdfs.HdfsSite != nil {
+				volume := corev1.Volume{
+					Name: cluster.Name + "-hdfssite",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: r.resourceName(cluster),
+							},
+							Items: []corev1.KeyToPath{
+								{
+									Key:  "hdfs-site.xml",
+									Path: "hdfs-site.xml",
+								},
+							},
+						},
+					},
+				}
+				volumes = append(volumes, volume)
+			}
+			if v.Hdfs.HdfsSite != nil {
+				volume := corev1.Volume{
+					Name: cluster.Name + "-coresite",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: r.resourceName(cluster),
+							},
+							Items: []corev1.KeyToPath{
+								{
+									Key:  "core-site.xml",
+									Path: "core-site.xml",
+								},
+							},
+						},
+					},
+				}
+				volumes = append(volumes, volume)
+			}
+		}
+	}
+	return volumes
 }
 
 func (r *MetastoreClusterReconciler) constructVolumeMounts(cluster *metastorev1alpha1.MetastoreCluster) []corev1.VolumeMount {
-	return []corev1.VolumeMount{
-		{
-			Name:      cluster.Name + "-hdfssite",
-			MountPath: "/opt/hadoop/etc/hadoop/hdfs-site.xml",
-			SubPath:   "hdfs-site.xml",
-		},
-		{
-			Name:      cluster.Name + "-coresite",
-			MountPath: "/opt/hadoop/etc/hadoop/core-site.xml",
-			SubPath:   "core-site.xml",
-		},
+	volumeMounts := []corev1.VolumeMount{
 		{
 			Name:      cluster.Name + "-hivesite",
 			MountPath: "/opt/hive/conf/hive-site.xml",
 			SubPath:   "hive-site.xml",
 		},
 	}
+	for _, v := range cluster.Spec.ClusterRefs {
+		if v.Type == metastorev1alpha1.HdfsClusterType {
+			if v.Hdfs.HdfsSite != nil {
+				volumeMount := corev1.VolumeMount{
+					Name:      cluster.Name + "-hdfssite",
+					MountPath: "/opt/hadoop/etc/hadoop/hdfs-site.xml",
+					SubPath:   "hdfs-site.xml",
+				}
+				volumeMounts = append(volumeMounts, volumeMount)
+			}
+			if v.Hdfs.CoreSite != nil {
+				volumeMount := corev1.VolumeMount{
+					Name:      cluster.Name + "-coresite",
+					MountPath: "/opt/hadoop/etc/hadoop/core-site.xml",
+					SubPath:   "core-site.xml",
+				}
+				volumeMounts = append(volumeMounts, volumeMount)
+			}
+		}
+	}
+	return volumeMounts
 }
 
 func (r *MetastoreClusterReconciler) resourceName(cluster *metastorev1alpha1.MetastoreCluster) string {
@@ -198,8 +221,8 @@ func (r *MetastoreClusterReconciler) objectMeta(cluster *metastorev1alpha1.Metas
 
 func (r *MetastoreClusterReconciler) reconcileResource(ctx context.Context, cluster *metastorev1alpha1.MetastoreCluster,
 	constructFunc func(*metastorev1alpha1.MetastoreCluster) (client.Object, error),
-	compareFunc func(*client.Object, *client.Object) bool,
-	updateFunc func(context.Context, *client.Object, *client.Object) error,
+	compareFunc func(client.Object, client.Object) bool,
+	updateFunc func(context.Context, client.Object, client.Object) error,
 	existingResource client.Object, resourceType string) error {
 	logger := log.FromContext(ctx)
 	resourceName := r.resourceName(cluster)
@@ -244,8 +267,8 @@ func (r *MetastoreClusterReconciler) reconcileResource(ctx context.Context, clus
 		if compareFunc != nil {
 			logger.Info(fmt.Sprintf("Checking modified %s", resourceType),
 				fmt.Sprintf("%s.Namespace", resourceType), cluster.Namespace, fmt.Sprintf("%s.Name", resourceType), cluster.Name)
-			if compareFunc(&existingResource, &desiredResource) {
-				err = updateFunc(ctx, &existingResource, &desiredResource)
+			if !compareFunc(existingResource, desiredResource) {
+				err = updateFunc(ctx, existingResource, desiredResource)
 				if err != nil {
 					logger.Error(err, fmt.Sprintf("Failed to update %s", resourceType),
 						fmt.Sprintf("%s.Namespace", resourceType), desiredResource.GetNamespace(), fmt.Sprintf("%s.Name", resourceType), desiredResource.GetName())
@@ -364,9 +387,9 @@ func (r *MetastoreClusterReconciler) constructConfigMap(cluster *metastorev1alph
 		case metastorev1alpha1.DatabaseClusterType:
 			switch clusterRef.Database.DbType {
 			case "mysql":
-				clusterConf["javax.jdo.option.ConnectionDriverNam"] = "org.mysql.Driver"
+				clusterConf["javax.jdo.option.ConnectionDriverName"] = "org.mysql.Driver"
 			case "postgres":
-				clusterConf["javax.jdo.option.ConnectionDriverNam"] = "org.postgresql.Driver"
+				clusterConf["javax.jdo.option.ConnectionDriverName"] = "org.postgresql.Driver"
 			}
 			clusterConf["javax.jdo.option.ConnectionURL"] = clusterRef.Database.ConnectionUrl
 			clusterConf["javax.jdo.option.ConnectionUserName"] = clusterRef.Database.UserName
@@ -382,7 +405,9 @@ func (r *MetastoreClusterReconciler) constructConfigMap(cluster *metastorev1alph
 			cmDesired.Data["core-site.xml"] = map2Xml(clusterRef.Hdfs.CoreSite)
 		}
 	}
-	clusterConf["hive.metastore.warehouse.dir"] = "/usr/hive/warehouse"
+	if _, ok := clusterConf["hive.metastore.warehouse.dir"]; !ok {
+		clusterConf["hive.metastore.warehouse.dir"] = "/usr/hive/warehouse"
+	}
 	cmDesired.Data["hive-site.xml"] = map2Xml(clusterConf)
 
 	if err := ctrl.SetControllerReference(cluster, cmDesired, r.Scheme); err != nil {
@@ -392,34 +417,29 @@ func (r *MetastoreClusterReconciler) constructConfigMap(cluster *metastorev1alph
 	return cmDesired, nil
 }
 
-func (r *MetastoreClusterReconciler) compareConfigMap(cm1 *client.Object, cm2 *client.Object) bool {
-	cm1Value := reflect.ValueOf(*cm1)
-	cm2Value := reflect.ValueOf(*cm2)
+func (r *MetastoreClusterReconciler) compareConfigMap(cm1 client.Object, cm2 client.Object) bool {
+	//Got data filed through reflect. The type of this filed is map.
+	cm1Data := reflect.ValueOf(cm1).Elem().FieldByName("Data")
+	cm2Data := reflect.ValueOf(cm2).Elem().FieldByName("Data")
 
-	cm1Data := reflect.ValueOf(cm1Value.FieldByName("Data"))
-	cm2Data := reflect.ValueOf(cm2Value.FieldByName("Data"))
-
-	if cm1Data.NumField() != cm2Data.NumField() {
-		return false
-	}
 	cm1Map := make(map[string]string)
 	cm2Map := make(map[string]string)
 
-	for i := 0; i < cm1Data.NumField(); i++ {
-		cm1Map[cm1Data.Type().Field(i).Name] = fmt.Sprintf("%v", cm1Data.Field(i))
+	for _, k := range cm1Data.MapKeys() {
+		cm1Map[k.Interface().(string)] = cm1Data.MapIndex(k).Interface().(string)
 	}
-	for j := 0; j < cm2Data.NumField(); j++ {
-		cm2Map[cm2Data.Type().Field(j).Name] = fmt.Sprintf("%v", cm2Data.Field(j))
+	for _, k := range cm2Data.MapKeys() {
+		cm2Map[k.Interface().(string)] = cm2Data.MapIndex(k).Interface().(string)
 	}
 
 	return compareConf(cm1Map, cm2Map)
 }
 
-func (r *MetastoreClusterReconciler) updateConfigMap(ctx context.Context, cm1 *client.Object, cm2 *client.Object) error {
-	cm1Value := reflect.ValueOf(*cm1)
-	cm2Value := reflect.ValueOf(*cm2)
+func (r *MetastoreClusterReconciler) updateConfigMap(ctx context.Context, cm1 client.Object, cm2 client.Object) error {
+	cm1Value := reflect.ValueOf(cm1)
+	cm2Value := reflect.ValueOf(cm2)
 	cm1Value.FieldByName("Data").Set(cm2Value.FieldByName("Data"))
-	return r.Update(ctx, *cm1)
+	return r.Update(ctx, cm1Value.Interface().(client.Object))
 }
 
 func (r *MetastoreClusterReconciler) reconcileConfigmap(ctx context.Context, cluster *metastorev1alpha1.MetastoreCluster, logger logr.Logger) error {
@@ -464,12 +484,12 @@ func (r *MetastoreClusterReconciler) constructWorkload(cluster *metastorev1alpha
 							},
 							Ports: []corev1.ContainerPort{
 								{
-									Name:          "thrift",
+									Name:          string(metastorev1alpha1.ExposedThriftHttp),
 									ContainerPort: int32(9083),
 								},
 							},
-							LivenessProbe:  r.constructProbe(cluster),
-							ReadinessProbe: r.constructProbe(cluster),
+							LivenessProbe:  r.constructProbe(),
+							ReadinessProbe: r.constructProbe(),
 							VolumeMounts:   r.constructVolumeMounts(cluster),
 						},
 					},
@@ -487,26 +507,32 @@ func (r *MetastoreClusterReconciler) constructWorkload(cluster *metastorev1alpha
 	return stsDesired, nil
 }
 
-func (r *MetastoreClusterReconciler) compareWorkload(workload1 *client.Object, workload2 *client.Object) bool {
-	wl1Value := reflect.ValueOf(*workload1)
-	wl2Value := reflect.ValueOf(*workload2)
+func (r *MetastoreClusterReconciler) compareWorkload(workload1 client.Object, workload2 client.Object) bool {
+	//got the spec field. The type is appsv1.StatefulSetSpec
+	wl1Spec := reflect.ValueOf(workload1).Elem().FieldByName("Spec")
+	wl2Spec := reflect.ValueOf(workload2).Elem().FieldByName("Spec")
 
-	wl1Spec := reflect.ValueOf(wl1Value.FieldByName("Spec"))
-	wl2Spec := reflect.ValueOf(wl2Value.FieldByName("Spec"))
+	wl1StsSpec := wl1Spec.Interface().(appsv1.StatefulSetSpec)
+	wl2StsSpec := wl2Spec.Interface().(appsv1.StatefulSetSpec)
 
-	wl1Replicas := reflect.ValueOf(wl1Spec.FieldByName("Replicas"))
-	wl2Replicas := reflect.ValueOf(wl2Spec.FieldByName("Replicas"))
-
-	return reflect.DeepEqual(wl1Replicas, wl2Replicas)
+	return *wl1StsSpec.Replicas == *wl2StsSpec.Replicas &&
+		wl1StsSpec.Template.Spec.Containers[0].Image == wl2StsSpec.Template.Spec.Containers[0].Image &&
+		wl1StsSpec.Template.Spec.Containers[0].ImagePullPolicy == wl2StsSpec.Template.Spec.Containers[0].ImagePullPolicy
 }
 
-func (r *MetastoreClusterReconciler) updateWorkload(ctx context.Context, workload1 *client.Object, workload2 *client.Object) error {
-	wl1Value := reflect.ValueOf(*workload1)
-	wl2Value := reflect.ValueOf(*workload2)
-	wl1Spec := reflect.ValueOf(wl1Value.FieldByName("Spec"))
-	wl2Spec := reflect.ValueOf(wl2Value.FieldByName("Spec"))
-	wl1Spec.FieldByName("Replicas").Set(wl2Spec.FieldByName("Replicas"))
-	return r.Update(ctx, *workload1)
+func (r *MetastoreClusterReconciler) updateWorkload(ctx context.Context, workload1 client.Object, workload2 client.Object) error {
+	wl1Value := reflect.ValueOf(workload1)
+	wl2Value := reflect.ValueOf(workload2)
+	wl1Spec := wl1Value.Elem().FieldByName("Spec")
+	wl2Spec := wl2Value.Elem().FieldByName("Spec")
+	wl1StsSpec := wl1Spec.Interface().(appsv1.StatefulSetSpec)
+	wl2StsSpec := wl2Spec.Interface().(appsv1.StatefulSetSpec)
+
+	wl1StsSpec.Replicas = wl2StsSpec.Replicas
+	wl1StsSpec.Template.Spec.Containers[0].Image = wl2StsSpec.Template.Spec.Containers[0].Image
+	wl1StsSpec.Template.Spec.Containers[0].ImagePullPolicy = wl2StsSpec.Template.Spec.Containers[0].ImagePullPolicy
+
+	return r.Update(ctx, wl1Value.Interface().(client.Object))
 }
 
 func (r *MetastoreClusterReconciler) reconcileWorkload(ctx context.Context, cluster *metastorev1alpha1.MetastoreCluster, logger logr.Logger) error {

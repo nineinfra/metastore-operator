@@ -1,0 +1,350 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.13.0
+  name: metastoreclusters.metastore.nineinfra.tech
+spec:
+  group: metastore.nineinfra.tech
+  names:
+    kind: MetastoreCluster
+    listKind: MetastoreClusterList
+    plural: metastoreclusters
+    singular: metastorecluster
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: MetastoreCluster is the Schema for the metastoreclusters API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: MetastoreClusterSpec defines the desired state of MetastoreCluster
+            properties:
+              clusterRefs:
+                description: Clusters referenced by Metastore
+                items:
+                  properties:
+                    database:
+                      description: ClusterInfo is the detail info of the cluster of
+                        the clustertype Database cluster infos referenced by the Metastore
+                        cluster
+                      properties:
+                        connectionUrl:
+                          description: connection Url of the database.such as jdbc:mysql://mysql:3306/metastore
+                          type: string
+                        dbType:
+                          description: Db type.Specified the driver name.Support mysql,postgres
+                          type: string
+                        password:
+                          description: password
+                          type: string
+                        userName:
+                          description: Username of the database.
+                          type: string
+                      required:
+                      - connectionUrl
+                      - dbType
+                      - password
+                      - userName
+                      type: object
+                    hdfs:
+                      description: HDFS cluster infos referenced by the Metastore
+                        cluster
+                      properties:
+                        coreSite:
+                          additionalProperties:
+                            type: string
+                          description: HDFS core-site.xml.The type of the value must
+                            be string
+                          type: object
+                        hdfsSite:
+                          additionalProperties:
+                            type: string
+                          description: HDFS hdfs-site.xml.The type of the value must
+                            be string
+                          type: object
+                      type: object
+                    minio:
+                      description: Minio cluster infos referenced by the Metastore
+                        cluster
+                      properties:
+                        accessKey:
+                          description: Access Key
+                          type: string
+                        endpoint:
+                          description: Endpoint of minio.Default is the service called
+                            minio.
+                          type: string
+                        pathStyleAccess:
+                          description: Path style access
+                          type: string
+                        secretKey:
+                          description: Secret Key
+                          type: string
+                        sslEnabled:
+                          description: SSL enabled
+                          type: string
+                      required:
+                      - accessKey
+                      - endpoint
+                      - pathStyleAccess
+                      - secretKey
+                      - sslEnabled
+                      type: object
+                    name:
+                      description: Name is the name of the referenced cluster
+                      type: string
+                    type:
+                      enum:
+                      - database
+                      - minio
+                      - hdfs
+                      type: string
+                  required:
+                  - name
+                  - type
+                  type: object
+                type: array
+              metastoreConf:
+                additionalProperties:
+                  type: string
+                description: Metastore configurations.These cofigurations will be
+                  injected into the hive-site.xml.The type of the value must be string
+                type: object
+              metastoreImage:
+                description: Metastore image info
+                properties:
+                  pullPolicy:
+                    default: Always
+                    description: 'Image pull policy. One of `Always, Never, IfNotPresent`,
+                      default: `Always`.'
+                    enum:
+                    - Always
+                    - Never
+                    - IfNotPresent
+                    type: string
+                  pullSecret:
+                    description: Secrets for image pull.
+                    type: string
+                  repository:
+                    type: string
+                  tag:
+                    description: 'Image tag. Usually the vesion of the kyuubi, default:
+                      `latest`.'
+                    type: string
+                required:
+                - repository
+                type: object
+              metastoreResource:
+                description: Metastore resouce configuration
+                properties:
+                  replicas:
+                    description: The replicas of the kyuubi cluster workload.
+                    format: int32
+                    type: integer
+                required:
+                - replicas
+                type: object
+              metastoreVersion:
+                description: Metastore version
+                type: string
+            required:
+            - clusterRefs
+            - metastoreConf
+            - metastoreImage
+            - metastoreResource
+            - metastoreVersion
+            type: object
+          status:
+            description: MetastoreClusterStatus defines the observed state of MetastoreCluster
+            properties:
+              conditions:
+                items:
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource. --- This struct is intended for direct
+                    use as an array at the field path .status.conditions.  For example,
+                    \n type FooStatus struct{ // Represents the observations of a
+                    foo's current state. // Known .status.conditions.type are: \"Available\",
+                    \"Progressing\", and \"Degraded\" // +patchMergeKey=type // +patchStrategy=merge
+                    // +listType=map // +listMapKey=type Conditions []metav1.Condition
+                    `json:\"conditions,omitempty\" patchStrategy:\"merge\" patchMergeKey:\"type\"
+                    protobuf:\"bytes,1,rep,name=conditions\"` \n // other fields }"
+                  properties:
+                    lastTransitionTime:
+                      description: lastTransitionTime is the last time the condition
+                        transitioned from one status to another. This should be when
+                        the underlying condition changed.  If that is not known, then
+                        using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: message is a human readable message indicating
+                        details about the transition. This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: observedGeneration represents the .metadata.generation
+                        that the condition was set based upon. For instance, if .metadata.generation
+                        is currently 12, but the .status.conditions[x].observedGeneration
+                        is 9, the condition is out of date with respect to the current
+                        state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: reason contains a programmatic identifier indicating
+                        the reason for the condition's last transition. Producers
+                        of specific condition types may define expected values and
+                        meanings for this field, and whether the values are considered
+                        a guaranteed API. The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        --- Many .condition.type values are consistent across resources
+                        like Available, but because arbitrary conditions can be useful
+                        (see .node.status.conditions), the ability to deconflict is
+                        important. The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              creationTime:
+                format: date-time
+                type: string
+              exposedInfos:
+                description: 'Represents the observations of a NineCluster''s current
+                  state. MetastoreCluster.status.conditions.type are: "Available",
+                  "Progressing", and "Degraded" MetastoreCluster.status.conditions.status
+                  are one of True, False, Unknown. MetastoreCluster.status.conditions.reason
+                  the value should be a CamelCase string and producers of specific
+                  condition types may define expected values and meanings for this
+                  field, and whether the values are considered a guaranteed API. MetastoreCluster.status.conditions.Message
+                  is a human readable message indicating details about the transition.
+                  For further information see: https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties'
+                items:
+                  properties:
+                    exposedType:
+                      description: Exposed type. Support REST and THRIFT_BINARY
+                      type: string
+                    name:
+                      description: Exposed name.
+                      type: string
+                    serviceName:
+                      description: Exposed service name
+                      type: string
+                    servicePort:
+                      description: Exposed service port info
+                      properties:
+                        appProtocol:
+                          description: "The application protocol for this port. This
+                            is used as a hint for implementations to offer richer
+                            behavior for protocols that they understand. This field
+                            follows standard Kubernetes label syntax. Valid values
+                            are either: \n * Un-prefixed protocol names - reserved
+                            for IANA standard service names (as per RFC-6335 and https://www.iana.org/assignments/service-names).
+                            \n * Kubernetes-defined prefixed names: * 'kubernetes.io/h2c'
+                            - HTTP/2 over cleartext as described in https://www.rfc-editor.org/rfc/rfc7540
+                            * 'kubernetes.io/ws'  - WebSocket over cleartext as described
+                            in https://www.rfc-editor.org/rfc/rfc6455 * 'kubernetes.io/wss'
+                            - WebSocket over TLS as described in https://www.rfc-editor.org/rfc/rfc6455
+                            \n * Other protocols should use implementation-defined
+                            prefixed names such as mycompany.com/my-custom-protocol."
+                          type: string
+                        name:
+                          description: The name of this port within the service. This
+                            must be a DNS_LABEL. All ports within a ServiceSpec must
+                            have unique names. When considering the endpoints for
+                            a Service, this must match the 'name' field in the EndpointPort.
+                            Optional if only one ServicePort is defined on this service.
+                          type: string
+                        nodePort:
+                          description: 'The port on each node on which this service
+                            is exposed when type is NodePort or LoadBalancer.  Usually
+                            assigned by the system. If a value is specified, in-range,
+                            and not in use it will be used, otherwise the operation
+                            will fail.  If not specified, a port will be allocated
+                            if this Service requires one.  If this field is specified
+                            when creating a Service which does not need it, creation
+                            will fail. This field will be wiped when updating a Service
+                            to no longer need it (e.g. changing type from NodePort
+                            to ClusterIP). More info: https://kubernetes.io/docs/concepts/services-networking/service/#type-nodeport'
+                          format: int32
+                          type: integer
+                        port:
+                          description: The port that will be exposed by this service.
+                          format: int32
+                          type: integer
+                        protocol:
+                          default: TCP
+                          description: The IP protocol for this port. Supports "TCP",
+                            "UDP", and "SCTP". Default is TCP.
+                          type: string
+                        targetPort:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: 'Number or name of the port to access on the
+                            pods targeted by the service. Number must be in the range
+                            1 to 65535. Name must be an IANA_SVC_NAME. If this is
+                            a string, it will be looked up as a named port in the
+                            target Pod''s container ports. If this is not specified,
+                            the value of the ''port'' field is used (an identity map).
+                            This field is ignored for services with clusterIP=None,
+                            and should be omitted or set equal to the ''port'' field.
+                            More info: https://kubernetes.io/docs/concepts/services-networking/service/#defining-a-service'
+                          x-kubernetes-int-or-string: true
+                      required:
+                      - port
+                      type: object
+                  required:
+                  - exposedType
+                  - name
+                  - serviceName
+                  - servicePort
+                  type: object
+                type: array
+              updateTime:
+                format: date-time
+                type: string
+            required:
+            - creationTime
+            - exposedInfos
+            - updateTime
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

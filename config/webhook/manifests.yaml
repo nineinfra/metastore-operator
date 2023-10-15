@@ -1,0 +1,52 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: mutating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-metastore-nineinfra-tech-v1alpha1-metastorecluster
+  failurePolicy: Fail
+  name: mmetastorecluster.kb.io
+  rules:
+  - apiGroups:
+    - metastore.nineinfra.tech
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - metastoreclusters
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-metastore-nineinfra-tech-v1alpha1-metastorecluster
+  failurePolicy: Fail
+  name: vmetastorecluster.kb.io
+  rules:
+  - apiGroups:
+    - metastore.nineinfra.tech
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - metastoreclusters
+  sideEffects: None

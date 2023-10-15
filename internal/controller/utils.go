@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"encoding/xml"
+	"reflect"
 	"strings"
 
 	"github.com/go-xmlfmt/xmlfmt"
@@ -12,7 +14,18 @@ func compareConf(srcConf, dstConf map[string]string) bool {
 	}
 	for key, valueSrc := range srcConf {
 		valueDst, ok := dstConf[key]
-		if !ok || valueSrc != valueDst {
+		if !ok {
+			return false
+		}
+		if strings.HasSuffix(key, ".xml") {
+			srcMap := make(map[string]string)
+			dstMap := make(map[string]string)
+			xml.Unmarshal([]byte(valueSrc), &srcMap)
+			xml.Unmarshal([]byte(valueDst), &dstMap)
+			if !reflect.DeepEqual(srcMap, dstMap) {
+				return false
+			}
+		} else if valueSrc != valueDst {
 			return false
 		}
 	}

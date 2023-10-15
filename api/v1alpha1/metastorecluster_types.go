@@ -97,7 +97,7 @@ type HdfsCluster struct {
 type ClusterRef struct {
 	// Name is the name of the referenced cluster
 	Name string `json:"name"`
-	// +kubebuilder:validation:Enum={spark,metastore,hdfs,flink}
+	// +kubebuilder:validation:Enum={database,minio,hdfs}
 	Type ClusterType `json:"type"`
 	// ClusterInfo is the detail info of the cluster of the clustertype
 	// +optional
@@ -105,7 +105,7 @@ type ClusterRef struct {
 	Database DatabaseCluster `json:"database"`
 	// +optional
 	// Minio cluster infos referenced by the Metastore cluster
-	Minio MinioCluster `json:"metastore"`
+	Minio MinioCluster `json:"minio"`
 	// +optional
 	// HDFS cluster infos referenced by the Metastore cluster
 	Hdfs HdfsCluster `json:"hdfs"`
@@ -118,7 +118,7 @@ type MetastoreClusterSpec struct {
 	//Metastore image info
 	MetastoreImage ImageConfig `json:"metastoreImage"`
 	//Metastore resouce configuration
-	MetastoreResource ResourceConfig `json:"kyuubiResource"`
+	MetastoreResource ResourceConfig `json:"metastoreResource"`
 	//Metastore configurations.These cofigurations will be injected into the hive-site.xml.The type of the value must be string
 	MetastoreConf map[string]string `json:"metastoreConf"`
 	//Clusters referenced by Metastore
