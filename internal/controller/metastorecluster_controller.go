@@ -393,13 +393,33 @@ func (r *MetastoreClusterReconciler) constructConfigMap(cluster *metastorev1alph
 }
 
 func (r *MetastoreClusterReconciler) compareConfigMap(cm1 *client.Object, cm2 *client.Object) bool {
+	cm1Value := reflect.ValueOf(*cm1)
+	cm2Value := reflect.ValueOf(*cm2)
 
-	return true
+	cm1Data := reflect.ValueOf(cm1Value.FieldByName("Data"))
+	cm2Data := reflect.ValueOf(cm2Value.FieldByName("Data"))
+
+	if cm1Data.NumField() != cm2Data.NumField() {
+		return false
+	}
+	cm1Map := make(map[string]string)
+	cm2Map := make(map[string]string)
+
+	for i := 0; i < cm1Data.NumField(); i++ {
+		cm1Map[cm1Data.Type().Field(i).Name] = fmt.Sprintf("%v", cm1Data.Field(i))
+	}
+	for j := 0; j < cm2Data.NumField(); j++ {
+		cm2Map[cm2Data.Type().Field(j).Name] = fmt.Sprintf("%v", cm2Data.Field(j))
+	}
+
+	return compareConf(cm1Map, cm2Map)
 }
 
 func (r *MetastoreClusterReconciler) updateConfigMap(ctx context.Context, cm1 *client.Object, cm2 *client.Object) error {
-
-	return nil
+	cm1Value := reflect.ValueOf(*cm1)
+	cm2Value := reflect.ValueOf(*cm2)
+	cm1Value.FieldByName("Data").Set(cm2Value.FieldByName("Data"))
+	return r.Update(ctx, *cm1)
 }
 
 func (r *MetastoreClusterReconciler) reconcileConfigmap(ctx context.Context, cluster *metastorev1alpha1.MetastoreCluster, logger logr.Logger) error {
@@ -468,11 +488,25 @@ func (r *MetastoreClusterReconciler) constructWorkload(cluster *metastorev1alpha
 }
 
 func (r *MetastoreClusterReconciler) compareWorkload(workload1 *client.Object, workload2 *client.Object) bool {
-	return true
+	wl1Value := reflect.ValueOf(*workload1)
+	wl2Value := reflect.ValueOf(*workload2)
+
+	wl1Spec := reflect.ValueOf(wl1Value.FieldByName("Spec"))
+	wl2Spec := reflect.ValueOf(wl2Value.FieldByName("Spec"))
+
+	wl1Replicas := reflect.ValueOf(wl1Spec.FieldByName("Replicas"))
+	wl2Replicas := reflect.ValueOf(wl2Spec.FieldByName("Replicas"))
+
+	return reflect.DeepEqual(wl1Replicas, wl2Replicas)
 }
 
 func (r *MetastoreClusterReconciler) updateWorkload(ctx context.Context, workload1 *client.Object, workload2 *client.Object) error {
-	return nil
+	wl1Value := reflect.ValueOf(*workload1)
+	wl2Value := reflect.ValueOf(*workload2)
+	wl1Spec := reflect.ValueOf(wl1Value.FieldByName("Spec"))
+	wl2Spec := reflect.ValueOf(wl2Value.FieldByName("Spec"))
+	wl1Spec.FieldByName("Replicas").Set(wl2Spec.FieldByName("Replicas"))
+	return r.Update(ctx, *workload1)
 }
 
 func (r *MetastoreClusterReconciler) reconcileWorkload(ctx context.Context, cluster *metastorev1alpha1.MetastoreCluster, logger logr.Logger) error {
