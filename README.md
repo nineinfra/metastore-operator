@@ -12,7 +12,7 @@ You’ll need a Kubernetes cluster to run against. You can use [KIND](https://si
 **Note:** Your controller will automatically use the current context in your kubeconfig file (i.e. whatever cluster `kubectl cluster-info` shows).
 
 ### Installing on a kubernetes cluster
-Install kyuubi operator by helm:
+Install metastore operator by helm:
 
 ```sh
 helm repo add nineinfra-charts https://nineinfra.github.io/nineinfra-charts/
@@ -20,7 +20,7 @@ kubectl create namespace metastore-operator
 helm install metastore-operator nineinfra-charts/metastore-operator --version 0.313.0 -n metastore-operator
 ```
 
-### Deploying a kyuubi cluster by kyuubi-operator
+### Deploying a metastore cluster by metastore-operator
 1. Obtain the necessary configuration information, including HDFS cluster or Minio cluster, and Spark cluster configuration information.
    example:
 ```sh
