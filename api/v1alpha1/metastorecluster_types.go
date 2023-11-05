@@ -159,8 +159,9 @@ type MetastoreClusterStatus struct {
 	Conditions   []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
+// +genclient
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 
 // MetastoreCluster is the Schema for the metastoreclusters API
 type MetastoreCluster struct {
@@ -171,7 +172,7 @@ type MetastoreCluster struct {
 	Status MetastoreClusterStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // MetastoreClusterList contains a list of MetastoreCluster
 type MetastoreClusterList struct {
