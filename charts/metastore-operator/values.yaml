@@ -2,8 +2,8 @@
 ---
 image:
   repository: nineinfra/metastore-operator
-  pullPolicy: IfNotPresent
-  tag: v0.313.0
+  pullPolicy: Always
+  tag: v0.313.3
 
 imagePullSecrets: []
 nameOverride: ""

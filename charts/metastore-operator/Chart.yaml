@@ -1,9 +1,9 @@
 apiVersion: v2
-appVersion: 0.313.0
+appVersion: 0.313.3
 description: The Metastore Operator for Apache Hive Metastore
 home: https://github.com/nineinfra/metastore-operator
 maintainers:
 - name: nineinfra
   url: https://github.com/nineinfra
 name: metastore-operator
-version: v0.313.0
+version: v0.313.3
