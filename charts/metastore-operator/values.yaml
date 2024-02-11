@@ -2,7 +2,7 @@
 ---
 image:
   repository: nineinfra/metastore-operator
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
   tag: v0.313.3
 
 imagePullSecrets: []

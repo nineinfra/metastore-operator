@@ -403,6 +403,27 @@ func (r *MetastoreClusterReconciler) constructConfigMap(cluster *metastorev1alph
 		case metastorev1alpha1.HdfsClusterType:
 			cmDesired.Data["hdfs-site.xml"] = map2Xml(clusterRef.Hdfs.HdfsSite)
 			cmDesired.Data["core-site.xml"] = map2Xml(clusterRef.Hdfs.CoreSite)
+			if clusterRef.Hdfs.CoreSite != nil {
+				if _, ok := clusterRef.Hdfs.CoreSite[FSDefaultFSConfKey]; ok {
+					clusterConf[FSDefaultFSConfKey] = clusterRef.Hdfs.CoreSite[FSDefaultFSConfKey]
+				}
+			}
+			if clusterRef.Hdfs.HdfsSite != nil {
+				if _, ok := clusterRef.Hdfs.HdfsSite[DFSNameSpacesConfKey]; ok {
+					clusterConf[DFSNameSpacesConfKey] = clusterRef.Hdfs.HdfsSite[DFSNameSpacesConfKey]
+					if _, ok := clusterRef.Hdfs.HdfsSite[fmt.Sprintf("dfs.ha.namenodes.%s", clusterConf[DFSNameSpacesConfKey])]; ok {
+						clusterConf[fmt.Sprintf("dfs.ha.namenodes.%s", clusterConf[DFSNameSpacesConfKey])] = clusterRef.Hdfs.HdfsSite[fmt.Sprintf("dfs.ha.namenodes.%s", clusterConf[DFSNameSpacesConfKey])]
+						clusterConf[fmt.Sprintf("dfs.client.failover.proxy.provider.%s", clusterConf[DFSNameSpacesConfKey])] = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+						nameNodes := clusterRef.Hdfs.HdfsSite[fmt.Sprintf("dfs.ha.namenodes.%s", clusterConf[DFSNameSpacesConfKey])]
+						nameNodeList := strings.Split(nameNodes, ",")
+						for _, v := range nameNodeList {
+							clusterConf[fmt.Sprintf("dfs.namenode.rpc-address.%s.%s", clusterConf[DFSNameSpacesConfKey], v)] = clusterRef.Hdfs.HdfsSite[fmt.Sprintf("dfs.namenode.rpc-address.%s.%s", clusterConf[DFSNameSpacesConfKey], v)]
+						}
+					} else {
+						clusterConf[fmt.Sprintf("dfs.namenode.rpc-address.%s", clusterConf[DFSNameSpacesConfKey])] = clusterRef.Hdfs.HdfsSite[fmt.Sprintf("dfs.namenode.rpc-address.%s", clusterConf[DFSNameSpacesConfKey])]
+					}
+				}
+			}
 		}
 	}
 	if _, ok := clusterConf["hive.metastore.warehouse.dir"]; !ok {
