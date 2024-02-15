@@ -17,7 +17,7 @@ Install metastore operator by helm:
 ```sh
 helm repo add nineinfra-charts https://nineinfra.github.io/nineinfra-charts/
 kubectl create namespace metastore-operator
-helm install metastore-operator nineinfra-charts/metastore-operator --version 0.313.0 -n metastore-operator
+helm install metastore-operator nineinfra-charts/metastore-operator -n metastore-operator
 ```
 
 ### Deploying a metastore cluster by metastore-operator
